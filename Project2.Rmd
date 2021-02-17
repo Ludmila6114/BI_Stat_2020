@@ -1,0 +1,242 @@
+---
+title: "Linear Models Project"
+author: "Lyudmila Protsenko"
+date: "30/11/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_section: false
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+require(PerformanceAnalytics)
+require(cowplot) 
+require(ggplot2)
+require(car)
+
+```
+
+## Before we start
+Data we are going to analyse contains the following columns: crim (per capita crime rate by town), 
+zn (proportion of residential land zoned for lots over 25,000 sq.ft.), 
+indus (proportion of non-retail business acres per town),
+chas (Charles River dummy variable (= 1 if tract bounds river; 0 otherwise)),
+nox (nitrogen oxides concentration (parts per 10 million)),
+rm (average number of rooms per dwelling),
+age (proportion of owner-occupied units built prior to 1940),
+dis (weighted mean of distances to five Boston employment centres),
+rad (index of accessibility to radial highways),
+tax (full-value property-tax rate per \$10,000),
+ptratio (pupil-teacher ratio by town),
+black (1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town),
+lstat (lower status of the population (percent)),
+medv (median value of owner-occupied homes in \$1000s).
+Let's firstly take a look at these data.
+
+```{r}
+Boston_data <- Boston
+str(Boston_data)
+```
+It's necessary to make factor variables as factors:
+
+```{r}
+Boston_data$chas <- factor(Boston_data$chas)
+Boston_data$rad <- factor(Boston_data$rad)
+```
+
+To find outliers, we will plot out data via boxplots.
+
+```{r, echo=FALSE}
+Crim <- ggplot(data = Boston_data, aes(x=chas, y = crim, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("crime level") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Zn <- ggplot(data = Boston_data, aes(x=chas, y = zn, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("residential land, %") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Indus <- ggplot(data = Boston_data, aes(x=chas, y = indus, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("non-retail business acres") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Nox <- ggplot(data = Boston_data, aes(x=chas, y = nox, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("nitrogen oxides") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Rm <- ggplot(data = Boston_data, aes(x=chas, y = rm, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("number of rooms") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Age <- ggplot(data = Boston_data, aes(x=chas, y = age, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("owner-occupied units") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+Dis <- ggplot(data = Boston_data, aes(x=chas, y = dis, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("distances to centres") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+Tax <- ggplot(data = Boston_data, aes(x=chas, y = tax, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("property-tax") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+PT <- ggplot(data = Boston_data, aes(x=chas, y = ptratio, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("pupil-teacher ratio") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+Black <- ggplot(data = Boston_data, aes(x=chas, y = black, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("1000(Bk - 0.63)^2") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+LS <- ggplot(data = Boston_data, aes(x=chas, y = lstat, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("lower status of the population") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+Medv <- ggplot(data = Boston_data, aes(x=chas, y = medv, fill = chas)) +
+  geom_boxplot() + theme_bw() + ylab("median value of homes") + xlab("near the river or not") + theme(axis.text.x = element_text(hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+
+
+plot_grid(Crim, Zn, Indus, Nox, Rm, Age, ncol = 2, nrow = 3)
+
+plot_grid(Dis, Tax, PT, Black, LS, Medv, ncol = 2, nrow = 3)
+
+```
+
+Some outliers can be seen, but let's firstly try to make a linear model. We will delete outliers in crime, residential land zoned and black columns. We will delete everything more then 2 std.
+
+```{r}
+Boston_data <- Boston_data[Boston_data$crim <= mean(Boston_data$crim) + 2*sd(Boston_data$crim) & Boston_data$crim >= mean(Boston_data$crim) - 2*sd(Boston_data$crim),]
+Boston_data <- Boston_data[Boston_data$zn <= mean(Boston_data$zn) + 2*sd(Boston_data$zn) & Boston_data$zn >= mean(Boston_data$zn) - 2*sd(Boston_data$zn),]
+Boston_data <- Boston_data[Boston_data$black <= mean(Boston_data$black) + 2*sd(Boston_data$black) & Boston_data$black >= mean(Boston_data$black) - 2*sd(Boston_data$black),]
+
+Data <- Boston_data
+```
+
+
+In order to estimate and compare contribution of different variables all of numeric variables should be scaled.
+
+```{r}
+Boston_data$crim <- scale(Boston_data$crim)
+Boston_data$zn <- scale(Boston_data$zn)
+Boston_data$indus <- scale(Boston_data$indus)
+Boston_data$nox <- scale(Boston_data$nox)
+Boston_data$rm <- scale(Boston_data$rm)
+Boston_data$age <- scale(Boston_data$age)
+Boston_data$dis <- scale(Boston_data$dis)
+Boston_data$tax <- scale(Boston_data$tax)
+Boston_data$ptratio <- scale(Boston_data$ptratio)
+Boston_data$black <- scale(Boston_data$black)
+Boston_data$lstat <- scale(Boston_data$lstat)
+Boston_data$medv <- scale(Boston_data$medv)
+chart.Correlation(Boston_data[,c(1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 14)], histogram=TRUE, pch=20) 
+```
+
+## Linear models
+
+Let's try to make model with scaled predictors.
+
+```{r}
+mod_scale<-lm(medv ~ crim + zn + indus + chas + nox + rm + age + dis + rad + tax + ptratio + black + lstat, data = Boston_data)
+summary(mod_scale)
+```
+Here we can see that lstat has the greatest coefficient for our model. 
+It's important to exclude  multicollinearity of predictors so to do it we use VIF (variance inflation factor).
+If a predictor has a VIF value above 2, then it should be excluded from the model. After that the model should be recalculated. 
+
+```{r}
+data <- Data
+data$chas <- factor(data$chas)
+data$rad <- factor(data$rad)
+
+mod_1 <-lm(medv ~ crim + zn + indus + chas + nox + rm + age + dis + rad + tax + ptratio + black + lstat, data = data)
+vif(mod_1)
+summary(mod_1)
+```
+```{r}
+mod_2 <- update(mod_1, .~. -tax)
+vif(mod_2)
+summary(mod_2)
+```
+```{r}
+mod_3 <- update(mod_2, .~. -crim)
+vif(mod_3)
+summary(mod_3)
+```
+```{r}
+mod_4 <- update(mod_3, .~. -nox)
+vif(mod_4)
+summary(mod_4)
+```
+Model 4 is the best for now. 
+Then it's better to limit our predictors only by significant once. The best way to do it is using backward selection.
+
+```{r}
+drop1(mod_4, test = "F")
+```
+```{r}
+mod_5 <- update(mod_4, .~. - age)
+drop1(mod_5, test = "F")
+```
+```{r}
+mod_6 <- update(mod_5, .~. - zn)
+drop1(mod_6, test = "F")
+summary(mod_6)
+```
+```{r}
+mod_7 <- update(mod_6, .~. - black)
+drop1(mod_7, test = "F")
+summary(mod_7)
+```
+
+
+It's important to make diagnostics for these model. We perform a leftovers plot.
+
+```{r}
+mod_7_diag <- fortify(mod_7)
+
+ggplot(data = mod_7_diag, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") + xlab('model predicted axis') + ylab('std errors') + theme_bw()
+```
+It seems like we have relationships between factor and numeric values. Let's make plots to figure it out.
+
+```{r}
+ggplot(data = Data, aes(x = indus, y = medv, col = rad)) + geom_point()
+```
+```{r}
+ggplot(data = Data, aes(x = dis, y = medv, col = rad)) + geom_point()
+```
+```{r}
+ggplot(data = Data, aes(x = ptratio, y = medv, col = rad)) + geom_point()
+```
+
+It's clear that here we have relationships which should be included in our model.
+
+```{r}
+mod8 <- lm(medv ~ indus:rad + chas + rm + dis:rad + rad + ptratio:rad + lstat + indus + dis + ptratio, data = Data)
+summary(mod8)
+```
+
+
+
+```{r}
+mod9 <- lm(medv ~ (indus+rad+dis+ptratio+chas)^2 + rm + lstat, data = Data)
+summary(mod9)
+```
+```{r}
+mod_9_diag <- fortify(mod9)
+
+ggplot(data = mod_9_diag, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") + xlab('model predicted axis') + ylab('std errors') + theme_bw()
+```
+
+
+
+## The most important predictor
+
+```{r}
+One_model <- lm(medv ~ lstat, data = Data)
+Data$predict <- predict(One_model)
+summary(One_model)
+ggplot(data = Data, aes(x = lstat, y = medv)) + geom_point() + geom_smooth(method = "lm")
+
+```
+
+
+Summary: these last model is a bit better, but of course not the best. It's hard to find the prettiest model, but i did my best.
+The best R^2 is about 72% and we have some pattern in errors.
