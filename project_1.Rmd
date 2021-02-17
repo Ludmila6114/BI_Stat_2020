@@ -1,0 +1,336 @@
+---
+title: "Statistical analysis of shellfish data showed expected and unexpected results"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_section: false
+date: "10/10/2020"
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+Shellfish is a colloquial and fisheries term for exoskeleton-bearing aquatic invertebrates used as food, including various species of mollusks, crustaceans, and echinoderms. Shellfish are among the most common food allergens. There are 2900 types of shellfish in Russia.
+There were many different studies conducted using shellfish, but the relationship between some particular parameters still remain unclear.
+Here we perform all steps of analysis from preparatory work of raw experimental data to statistical processing of these data  and hypothesis testing. These results reveal complex relationships between the physical parameters of shellfish which may be useful tool to perform future studies in such fields like ecology and evolutionary biology. 
+
+
+## Introduction
+Shellfish come in many different forms and shapes. The shellfish includes two highly diversified phyla i.e. phylum Arthropoda and phylum Mollusca. These two groups are named as shellfishes because of the presence of exoskeleton made of chitin in arthropods and shells made of calcium in molluscs. These two major phyla are invertebrates. The economically important groups of two phyla include lobsters, shrimps, crabs, clam, mussel, oysters, chank, squid and cuttlefish [1]. Recent research has demonstrated that trace element fingerprints  based on the shell and soft tissues can identify the site of harvest of blue mussels [2] and king scallops [3] reveals harvesting period and location with 100% success. Based on a combination of both the shell and periostracum of mussels enabled 96% of all individuals to be correctly assigned to their date of harvest indicating that this method can not only identify the location but also the date of harvest of bivalve shellfish [4]. These findings give great inside into relationship between physical parameters of shellfishes and practical applications. Here we perform complex analysis of different shellfish and examine trends in their morphology.
+
+## Methods
+
+### Libraries required for computational analysis in R
+
+For our analysis it is necessary to use these libraries.
+Please check that these libraries have installed.
+
+
+```{r libraries, warning=TRUE, message=FALSE}
+require(ggplot2)
+require(dplyr)
+require(stats)
+require(base)
+require(tidyr)
+require(cowplot)
+require(grDevices)
+require(RColorBrewer)
+require(graphics)
+require(PerformanceAnalytics)
+```
+
+### Collecting data
+
+We collect the data from many persons and firstly we solved the problem how to merge all there data in one dataframe.
+In order to do it in a most simply way we wrote a function. 
+
+```{r, warning=FALSE, message=FALSE}
+merge_data <- function(folder_path){
+  your_files <- list.files(folder_path)
+  merged_data <- data.frame()
+  setwd(folder_path)
+  for (file in your_files){
+    merged_data <- rbind(merged_data, read.csv(file))
+  }
+  return (merged_data)
+}
+expedition_data <- merge_data("/home/pro_milka/BIOINFORMATICS_INSTITUTE/R/Data/")
+```
+
+### Data preparation
+
+We got `r nrow(expedition_data)` rows, but there were many problems in the way of how data were performed. For example, types of many numeric variables were characters and it led to problems in visualization. Also, some numeric data were written in a way of words like "nine". Moreover, the name of "Sex" variable was absolutely huge and the consistence of that column was also disorderly, combining character and numeric data. We do some steps to make data understandable. 
+
+```{r, warning=FALSE}
+expedition_data[expedition_data$Sex..1...male..2...female..3...uvenil. %in% c(1, "one"),]$Sex..1...male..2...female..3...uvenil. <- 'male'
+
+expedition_data[expedition_data$Sex..1...male..2...female..3...uvenil. %in% c(2, "two"),]$Sex..1...male..2...female..3...uvenil. <- 'female'
+
+expedition_data[expedition_data$Sex..1...male..2...female..3...uvenil. %in% c(3, "three"),]$Sex..1...male..2...female..3...uvenil. <- 'uvenil'
+
+expedition_data$Sex <- factor(expedition_data$Sex..1...male..2...female..3...uvenil.)
+expedition_data$Sex..1...male..2...female..3...uvenil. <- NULL
+expedition_data[expedition_data$Rings == 'nine',]$Rings <- 9
+expedition_data$Rings <- as.numeric(expedition_data$Rings)
+expedition_data$Length <- as.numeric(expedition_data$Length)
+```
+
+
+After that we got clear dataframe with understandable names and scores within it. But the problem related to NA values still remained. There are many ways of solving this problem, one of this is using mean value, but it influenced by outliers so much. Another way is to use median value and it's possible, but not in factor variables like "Sex". There is also a way to delete all rows with NA values. To make a correct decision, we estimate how many rows in percentage we will have if we delete all NA containing rows. 
+
+```{r}
+nrow(na.omit(expedition_data))/nrow(expedition_data) * 100
+```
+So almost all data contain all values and that it is not a big problem to delete non complete rows.
+
+```{r}
+expedition_data <- na.omit(expedition_data)
+nrow(expedition_data)
+```
+After that we got a dataframe with `r nrow(expedition_data)` rows.
+
+### Distribution analysis, find outliers.
+
+When the data was cleared, it is time to look at some distributions of values. 
+We perform rude visualization using boxplot in order to estimate the existance of outliers.
+Here we see that Height column is influenced by some huge otliers.
+
+```{r, echo=FALSE}
+Length_distribution <- ggplot(data = expedition_data, aes(x=Sex, y = Length, fill = Sex)) +
+  geom_boxplot() + theme_bw() + theme(axis.text.x = element_text(angle = 20 , hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Diameter_distribution <- ggplot(data = expedition_data, aes(x=Sex, y = Diameter, fill = Sex)) +
+  geom_boxplot() + theme_bw() +   theme(axis.text.x = element_text(angle = 20 , hjust = 1, size = 9)) + scale_fill_brewer(palette = "Set2") 
+Height_distribution <- ggplot(data = expedition_data, aes(x=Sex, y = Height, fill = Sex)) +
+  geom_boxplot() + theme_bw() + theme(axis.text.x = element_text(angle = 20 , hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+Whole_weight_dist <- ggplot(data = expedition_data, aes(x=Sex, y = Whole_weight, fill = Sex)) +
+  geom_boxplot() + theme_bw() + ylab("Whole weight") +   theme(axis.text.x = element_text(angle = 20 , hjust = 1, size = 9)) + scale_fill_brewer(palette = "Set2") 
+Shucked_weight_dist <- ggplot(data = expedition_data, aes(x=Sex, y = Shucked_weight, fill = Sex)) +
+  geom_boxplot() + theme_bw() + ylab("Shucked weight") +   theme(axis.text.x = element_text(angle = 20 , hjust = 1, size = 9)) +scale_fill_brewer(palette = "Set2") 
+Viscera_weight_dist <-  ggplot(data = expedition_data, aes(x=Sex, y = Viscera_weight, fill = Sex)) +
+  geom_boxplot() + theme_bw() + ylab("Viscera weight") +   theme(axis.text.x = element_text(angle = 20 , hjust = 1, size = 9)) +scale_fill_brewer(palette = "Set2") 
+Shell_weight_dist <- ggplot(data = expedition_data, aes(x=Sex, y = Shell_weight, fill = Sex)) +
+  geom_boxplot() + theme_bw() + ylab("Shell weight") +   theme(axis.text.x = element_text(angle = 20, hjust = 1, size = 9)) +  scale_fill_brewer(palette = "Set2") 
+
+plot_grid(Length_distribution, Diameter_distribution, Height_distribution, Whole_weight_dist, Shucked_weight_dist, Viscera_weight_dist, Shell_weight_dist, ncol = 3, nrow = 3)
+```
+
+Moreover, data also should have normal distribution. We plotted all numeric data via density plot (see below). Red line means median value. It's clear that Height data has the most significant deviations. At all, it may be explained by outliers. These data is in accordance with boxplot results.
+
+```{r, echo = FALSE}
+Length_distribution <- ggplot(data = expedition_data, aes(x=Length)) +
+  geom_density() + theme_bw() +ylab("Density") + geom_vline(xintercept = median(expedition_data$Length), linetype='dashed', col = 'red')
+Diameter_distribution <- ggplot(data = expedition_data, aes(x=Diameter)) +
+  geom_density() + theme_bw() + ylab("Density") + geom_vline(xintercept = median(expedition_data$Diameter), linetype='dashed', col = 'red')
+Height_distribution <- ggplot(data = expedition_data, aes(x=Height)) +
+  geom_density() + theme_bw() +ylab("Density") + geom_vline(xintercept = median(expedition_data$Height), linetype='dashed', col = 'red')
+Whole_weight_dist <- ggplot(data = expedition_data, aes(x=Whole_weight)) +
+  geom_density() + theme_bw() + xlab("Whole weight") + ylab("Density") + geom_vline(xintercept = median(expedition_data$Whole_weight), linetype='dashed', col = 'red')
+Shucked_weight_dist <- ggplot(data = expedition_data, aes(x=Shucked_weight)) +
+  geom_density() + theme_bw() + xlab("Shucked weight") + ylab("Density") + geom_vline(xintercept = median(expedition_data$Shucked_weight), linetype='dashed', col = 'red')
+Viscera_weight_dist <-  ggplot(data = expedition_data, aes(x = Viscera_weight)) +
+  geom_density() + theme_bw() + xlab("Viscera weight") + ylab("Density") + geom_vline(xintercept = median(expedition_data$Viscera_weight), linetype='dashed', col = 'red')
+Shell_weight_dist <- ggplot(data = expedition_data, aes(x= Shell_weight)) +
+  geom_density() + theme_bw() + xlab("Shell weight") + ylab("Density") + geom_vline(xintercept = median(expedition_data$Shell_weight), linetype='dashed', col = 'red') 
+
+plot_grid(Length_distribution, Diameter_distribution, Height_distribution, Whole_weight_dist, Shucked_weight_dist, Viscera_weight_dist, Shell_weight_dist, ncol = 3, nrow = 3)
+```
+
+Outliers are very undesirable for future analysis because they are able to influence the result of some statistical tests.
+That is why we will delete outliers from Height column. Statistically, we consider the value like outlier if it's more then sum of 75% quartile plus 1.5 x interquartile range or if the value less than 25% quartile minus 1.5 x interquartile range. 
+We decided to delete ouliers only related to Height, because in other columns the difference is not so far. If we delete all of the outliers, we unlikely improve normal distribution of variables, but also lose a great amount of values.
+
+
+```{r, echo=FALSE}
+quantile_height <- quantile(expedition_data$Height)
+interquartile_range_heigth <- 1.5*(quantile_height[[4]] - quantile_height[[2]])
+borders_height <- c(quantile_height[[2]] - interquartile_range_heigth, quantile_height[[4]] + interquartile_range_heigth)
+expedition_data <- expedition_data[expedition_data$Height >= borders_height[1] & expedition_data$Height <= borders_height[2],]
+height_clear <- nrow(expedition_data)
+```
+
+After removing all outliers we got: `r height_clear` rows. We can see that height distribution has improved and now it's more safety to use statictical tests. Red line also relates to median value.
+
+```{r, echo=FALSE}
+ggplot(data = expedition_data, aes(x=Height)) +
+  geom_density() + theme_bw() +ylab("Density") + geom_vline(xintercept = median(expedition_data$Height), linetype='dashed', col = 'red') + ggtitle("Height distribution without outliers") + xlim(0, 0.3)
+```
+
+
+## Results
+
+### Finding total trends
+
+Then we estimate possible relationships between values. We plotted all numeric values in pair in order to look at in closely and make hypothesis. Here we exclude Rings because it's rather a factor value like Sex. In order to see come correlation numerically, we perform correlation matrix.
+
+```{r, echo=FALSE}
+expedition_data$Rings <- factor(expedition_data$Rings)
+expedition_data_numeric <- expedition_data %>% select(Length, Diameter, Height, Whole_weight, Shucked_weight, Viscera_weight, Shell_weight)
+chart.Correlation(expedition_data_numeric, histogram=FALSE, pch=20)
+```
+
+According to these relationships, there are good and significant correlation coefficients at all, but it doesn't mean linear interconnection. 
+The most obvious links (possible, linear) exist between Length and Diameter, Length also relate to all Weight - variables, but this dependence is rather y ~ x ^n. We also see that Diameter relate to Weight-variables like x^n and it's clear that Whole weight correlate with other Weight.
+
+### There is a type trait which can't be explained by age that mollusks with more than 9 Rings have approximately constant length
+
+We have already estimate influence of Sex to numeric values (see boxplots above), and now we perform similar analysis above Rings factor values. Here we include only Length and Rings boxplot, but other values demonstrate similar situation. It's clear that creature's length correlates with Rings until  approximately 9 Rings and after that Length stays at constant level with small deviations for creatures with 23 Rings or more.
+
+```{r, echo=FALSE}
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(26)
+ggplot(data = expedition_data, aes(x=Rings, y = Length, fill = Rings)) +
+  geom_boxplot() + theme_bw() + theme(axis.text.x = element_text(hjust = 1, size = 9)) + scale_fill_manual(values = mycolors) + ggtitle("Length distribution among creatures with different Rings")
+```
+
+These results can be explained by age-related changes in mollusks, if assuming that the number of rings increases with age, and is not determined by the type of mollusk. To test this hypothesis, we estimate the distribution of Rings value among Uvenil, Male and Female  mollusks.
+
+```{r, echo = FALSE}
+ggplot(data = expedition_data, aes(x=Rings, fill = Sex)) +
+  geom_bar(col = 'black', alpha = 0.5) + theme_bw() + ylab("Amount of mollusks") + ggtitle("Rings distribution among different Sexes") + scale_fill_brewer(palette = "Set1")
+```
+
+These results demonstrate that amount of Rings has no relationship with age of mollusks. According to these findings, previous tendency between Length and Rings can be explained by different types of creatures with different amount of rings.
+
+
+### Calculation some statistical values
+
+We calculated mean value and sd value for shellfish grouped by sex.
+
+```{r, warning=FALSE, message=FALSE}
+expedition_data %>% group_by(Sex) %>% summarise(Mean_Length = mean(Length), Sd_Length = sd(Length))
+```
+
+Then we measured the percentage of shellfish which have parameter Height less then 0.165:
+
+```{r}
+expedition_data %>% filter(Height > 0.165) %>% count() / nrow(expedition_data) * 100
+```
+
+Also we calculated 92% quantile for Length column:
+
+```{r}
+quantile(expedition_data$Length, 0.92)
+```
+
+We are to do standardization for Length value and that is why we made new column with Z-score:
+
+```{r}
+expedition_data$Lenght_z_scores <- (expedition_data$Length - mean(expedition_data$Length))/sd(expedition_data$Length)
+```
+
+Let's take a look at our z-score distribution:
+
+```{r}
+ggplot(data = expedition_data, aes(Lenght_z_scores)) + geom_density(fill = "cadetblue1", alpha = 0.5) + theme_bw() + xlab("Z-score of Length") + ylab("Density") 
+```
+
+### Mollusks with 15 Rings have significantly bigger diameter than creatures with 5 rings.
+
+Firstly, we will just visualize the distribution of Diameter in shellfishes with 5 and 15 rings.
+
+```{r, echo = FALSE}
+ggplot(data = expedition_data %>% filter(Rings %in% c(5, 15)), aes(x = Rings, y = Diameter, fill = Rings)) + geom_violin(alpha = 0.5) +  geom_boxplot(width = 0.1) + theme_bw() + xlab("Number of rings") + ggtitle("Compative analysis of diameter between creatures with 5 and 15 rings")
+
+```
+
+According to this plot, we have significant differences between Diameter parameter among creatures with 5 and 15 rings, that can't be explained by age because of previous results. It seems like on average creatures with 15 rings have a larger diameter then creatures with 5 rings.
+To test the statistical significance, we perform statistical test.
+According to distribution plots above  we ensure that our data distribution differs from normal one. That's why we should use non-parametric t-test, 
+we use Mann–Whitney U test.
+
+
+```{r}
+my_test <- wilcox.test(expedition_data[expedition_data$Rings == 5,]$Diameter, expedition_data[expedition_data$Rings == 15,]$Diameter )
+my_test
+```
+As a result, we have p-value equals to `r my_test$p.value`. 
+So it is statistically significant that on average mollusks with 15 rings have bigger diameter then 5-rings creatures.
+
+
+### Examine the relationship between Diameter and Whole Weight.
+
+The first step in out analysis is drawing scatter plot. 
+```{r, message=FALSE}
+ggplot(data = expedition_data, aes(x = Diameter, y = Whole_weight)) + geom_point(col = "turquoise", alpha = 0.7) + theme_bw() + ylab("Whole weight") + geom_smooth() 
+
+```
+
+We will try to explain such relationship like y ~ x^2 or y ~ x^3. Firstly, we will add 2 more columns in dataframe:
+
+```{r}
+expedition_data$Diameter2 <- expedition_data$Diameter^2
+expedition_data$Diameter3 <- expedition_data$Diameter^3
+```
+
+We will also make plots and we will calculate the correlation coefficient.
+
+```{r}
+square <- ggplot(data = expedition_data, aes(x = Diameter2, y = Whole_weight)) + geom_point(col = "turquoise") + geom_smooth(method = "lm") + theme_bw() + ylab("Whole weight") + xlab("Diameter^2")
+cube <- ggplot(data = expedition_data, aes(x = Diameter3, y = Whole_weight)) + geom_point(col = "turquoise") + geom_smooth(method = "lm") + theme_bw() + ylab("Whole weight") + xlab("Diameter^3")
+plot_grid(square, cube, nrow = 1)
+```
+
+It's clear that cube - dependence is better. We also calculate correlation coefficients. 
+
+```{r}
+test_2 <- cor.test(expedition_data$Diameter2, expedition_data$Whole_weight)
+test_2
+```
+For example, in the case of squared-approximation, we get p-value:`r test_2$p.value`, with cor coefficient: `r test_2$estimate`.
+Even squared dependence is good for our case, but we will also check p-value and correlations in the case of cube-dependence.
+
+```{r}
+test_3 <- cor.test(expedition_data$Diameter3, expedition_data$Whole_weight)
+test_3
+```
+In the case of cube-approximation, we get p-value:`r test_3$p.value`, with cor coefficient: `r test_3$estimate`.
+We measured both coefficients and it's statistically more significant that the Diameter links with the Whole weight like a cube. 
+Then we examine linear regression among diameter^3 and whole weight columns. 
+
+```{r}
+fit <- lm(Whole_weight ~ Diameter3, expedition_data)
+summary(fit)
+```
+```{r, echo = FALSE}
+expedition_data$errors <- expedition_data$Whole_weight - (fit$coefficients[[1]] + expedition_data$Diameter3 * fit$coefficients[[2]])
+expedition_data$N <- 1:nrow(expedition_data)
+```
+To be convinced that model used correctly, we plotted an error - graph. 
+
+```{r, echo = FALSE}
+ggplot(data = expedition_data, aes(x = N, y = errors)) + geom_point(col = "turquoise") + theme_bw() + xlab("Number") + ylab("Error") + geom_hline(yintercept = 0)
+
+```
+
+This plot shows that there are no patterns in errors and that is good for our model.
+Lastly, we should be convinced that our variables have normal distribution. We created density plot. We see that distributions is not excellent, but this model can be used with some care! 
+
+```{r, echo = FALSE}
+dim <- ggplot(data = expedition_data, aes(x=Diameter3)) +
+  geom_density(fill = "cadetblue1", alpha = 0.5) + theme_bw() +ylab("Density") + xlab("Diameter^3")
+ww <- ggplot(data = expedition_data, aes(x=Whole_weight)) +
+  geom_density(fill = "cadetblue1", alpha = 0.5) + theme_bw() +ylab("Density") + xlab("Whole weight")
+plot_grid(dim, ww, nrow = 1)
+
+```
+
+
+## Discussion
+
+We have 3 major results: firstly, we have shown that there is statistically significant difference among creatures with 5 and 15 rings according to its Diameter. It was unusuall result and it may lead to important consequences in science of shellfish.
+Also we got that the relationship between Whole Weight and Diameter is y ~ x^3. These data is in accordance with theory. Whole weight should be proportional to creature volume, which relate to linear size like x^3.
+This result is rather predictable. We also noticed an intresting fact that molusks with the amount of rings more than 8 stay at constant level in Length. We tested if this trend links to age, and got the results that it is not, and it can be explained only by shellfish type. These results reveal complex relationships between the physical parameters of shellfish which may be useful tool to perform future studies in such fields like ecology and evolutionary biology. 
+
+## References
+1. V Bharti "Basic Shellfish Features" (2017)
+2. Bennion, Matthew, et al. "Trace element fingerprinting of blue mussel (Mytilus edulis) shells and soft tissues successfully reveals harvesting locations." Science of The Total Environment 685 (2019): 50-58.
+3. Morrison, Liam, et al. "Spatio-temporal trace element fingerprinting of king scallops (Pecten maximus) reveals harvesting period and location." Science of The Total Environment 697 (2019): 134121.
+4. Bennion, Matthew, et al. "Trace elemental fingerprinting of shells and soft tissues can identify the time of blue mussel (Mytilus edulis) harvesting." Food Control 121 (2020): 107515.
+
+### Acknowledgments
+We thank Lavrentiy Danilov for early discussions about the manuscript. 
