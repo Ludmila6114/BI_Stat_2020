@@ -1,0 +1,316 @@
+---
+title: "Protein Dynamics Associated with Failed and Rescued Learning in the Ts65Dn Mouse Model of Down Syndrome"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_section: false
+date: "22/02/2021"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+Down syndrome (DS) is the most common genetic cause of intellectual disability (ID), however there are no treatment. In this study we used the Ts65Dn mouse model of DS which is trisomic for orthologs of 55% of human chromosome 21 classical protein coding genes. To investigate potentially differentially expressed genes, we compared 8 classes of mice in accordance with their genotypes, behaviour and treatment. 
+
+
+## Introduction
+
+Down's syndrome, also known as trisomy 21, is a genetic disorder caused by the presence of all or part of a third copy of chromosome 21. It is usually associated with physical growth delays, mild to moderate intellectual disability, and characteristic facial features.The average IQ of a young adult with Down syndrome is 50, equivalent to the mental ability of an eight- or nine-year-old child. The parents of the affected individual are usually genetically normal. The probability increases from less than 0.1% in 20-year-old mothers to 3% in those of age 45. The extra chromosome is believed to occur by chance, with no known behavioral activity or environmental factor that changes the probability. Revealing particular diferentially expressed genes between classes is a useful tool in a context of development new treatment strategy.
+
+## Methods
+
+### Libraries required for computational analysis in R
+
+For our analysis it is necessary to use these libraries.
+Please check that these libraries have installed.
+
+```{r, message=FALSE}
+require(readxl)
+require(ggplot2)
+require(tidyr)
+require(dplyr)
+require(cowplot)
+require(RColorBrewer)
+require(car)
+require(multcomp)
+require(vegan)
+require(ggfortify)
+require(factoextra)
+require(plotly)
+```
+
+### Collecting and preformatting data
+
+We collect the data named "Mice Protein Expression Data Set" from UCI Machine Learning Repository in .xls format. 
+
+```{r}
+setwd('~/R_mouse')
+Mice <- read_xls('Data_Cortex_Nuclear.xls')
+Mice$class_factor <- as.factor(Mice$class)
+```
+
+Our data represent the level of gene expression of 77 proteins among `r length(unique(unlist(lapply(strsplit(Mice$MouseID, '_'), function(x)x[1]))))` mouse. For each mouse we have many repeating measurements, so it is useful to add new column represented particular mice. 
+
+```{r}
+Mice$ID <- lapply(strsplit(Mice$MouseID, '_'), function(x)x[1])
+```
+
+We distinguished `r length(unique(Mice$class))` classes of mice: `r unique(Mice$class)`. From data description we understood that meaning: 
+
+c-CS-s: control mice, stimulated to learn, injected with saline;
+
+c-CS-m: control mice, stimulated to learn, injected with memantine;
+
+c-SC-s: control mice, not stimulated to learn, injected with saline;
+
+c-SC-m: control mice, not stimulated to learn, injected with memantine;
+
+t-CS-s: trisomy mice, stimulated to learn, injected with saline;
+
+t-CS-m: trisomy mice, stimulated to learn, injected with memantine;
+
+t-SC-s: trisomy mice, not stimulated to learn, injected with saline;
+
+t-SC-m: trisomy mice, not stimulated to learn, injected with memantine
+
+#### Then we calculated the number of mice in each class:
+
+```{r}
+unique(Mice[,c('ID','class_factor')]) %>% group_by(class_factor) %>% count()
+
+```
+
+We will take a look at the amount of measurements in different groups. It's clear that we have 15 repeated measurements for each mice, so it this step it's sufficient to estimate values only among unique mice (not considering repeated measurements). We represented data in three different ways:
+
+```{r}
+ggplot(data = unique(Mice[,c('ID','class_factor', 'Treatment', 'Genotype', 'Behavior')]), aes(x = class_factor,fill = Genotype)) + geom_bar() + theme_bw() +xlab('Class') + ylab('Amount of mice') + ggtitle('Amount of mice in different classes with respect of genotype') + scale_fill_brewer(palette = "Set2") 
+```
+
+It's clear from barcharts that our groups are not balanced, the amount of mice with control genotype is bigger. 
+
+```{r}
+Tr <- ggplot(data = unique(Mice[,c('ID', 'Treatment', 'Genotype', 'Behavior')]), aes(x = Genotype,fill = Treatment)) + geom_bar() + theme_bw() +xlab('Genotype') + ylab('Amount of mice') + ggtitle('Amount of mice with different\ngenotypes with respect of\ntreatment') + scale_fill_brewer(palette = "Set2") 
+
+Beh <- ggplot(data = unique(Mice[,c('ID','Treatment', 'Genotype', 'Behavior')]), aes(x = Genotype, fill = Behavior)) + geom_bar() + theme_bw() +xlab('Genotype') + ylab('Amount of mice') + ggtitle('Amount of mice with different\ngenotypes with respect of\nbehavior') + scale_fill_brewer(palette = "Set2") 
+
+plot_grid(Tr, Beh, nrow = 1)
+```
+
+Then it's important to calcutate the amount of NA-values in our data.
+The percentage of rows without NA may be estimated as `r nrow(na.omit(Mice))/nrow(Mice)*100` %. It's too many to delete it all, so we will decide what to do in each particular type of further analysis.
+
+
+## Results
+
+### 1)
+
+Firstly, we compared the level of BDNF_N gene expression between classes. To exclude NA only in BDNF_N column (and also ID, treatment, class of course), we created a smaller dataframe:
+
+```{r}
+BDNF_N_analysis <- na.omit(Mice[,c('ID', 'BDNF_N', 'Treatment', 'class_factor')])
+```
+In such way we saved rows with NA in different columns and as the result we got `r nrow(BDNF_N_analysis)` rows out of `r nrow(Mice)`. At the first step, we graphically compared the level of BDNF_N expression among classes:
+
+```{r}
+ggplot(data = BDNF_N_analysis, aes(x = class_factor, y = BDNF_N, fill = Treatment )) + geom_boxplot() + scale_fill_brewer(palette = "Set2") + theme_bw() +xlab('Classes') + ylab('BDNF_N expression level') + ggtitle('BDNF_N gene expression level')
+```
+
+Firstly, we tried Anova to find signigicant diferences between classes. 
+
+```{r}
+model <- lm(BDNF_N ~ class_factor, BDNF_N_analysis)
+model_anova <- Anova(model)
+model_anova
+```
+
+Significant differences in BDNF_N expression level between groups were detected (F = 18.816, p_value < 2.2e-16, df_1 = 7, df_2 = 1069)
+Of note, ANOVA has applicability conditions: normal distribution of residues, homogeneity of dispersion residues, no collinearity (group independence), randomness and independence of observations in groups. 
+
+
+```{r}
+mod_diag <- fortify(model)
+ggplot(mod_diag, aes(x = 1:nrow(mod_diag), y = .cooksd)) + geom_bar(stat = "identity", fill = 'chartreuse3') + ggtitle("Cook's distance graph ") + theme_bw() + xlab('Row number') + ylab('Cook distance')
+```
+
+Cook distances are small that's why model fits. Then we checked the distribution of residues
+
+```{r}
+ggplot(mod_diag, aes(x = class_factor, y = .stdresid, fill = class_factor)) + geom_boxplot() + ggtitle("The distribution of residues") + theme_bw() + scale_fill_brewer(palette = "Set2") + xlab("Class") + ylab("Resudues distribution")
+```
+
+In our case there are no significant differences amoung the amount of groups, that's why Anova is a good tool for our results even with some outliers. 
+
+To identify pairwise differences, the Tukey post-hock test was performed.
+
+
+```{r, warning=FALSE}
+model <- lm(BDNF_N ~ class_factor, BDNF_N_analysis)
+post_hoch <- multcomp::glht(model, mcp(class_factor = "Tukey"))
+result<-summary(post_hoch)
+result
+```
+
+The most significant differences were revealed in pairs:
+
+c-SC-m & c-CS-m (F = -0.0482717, p_value < 0.001) 
+
+c-SC-s & c-CS-m (F = -0.0258249, p_value < 0.001)
+
+t-CS-m & c-CS-m (F = -0.0264852, p_value < 0.001)
+
+t-CS-s & c-CS-m (F = -0.0337570, p_value < 0.001)
+
+c-SC-m & c-CS-s (F = -0.0513696, p_value < 0.001)
+
+c-SC-s & c-CS-s (F = -0.0289228, p_value < 0.001)
+
+t-CS-m & c-CS-s (F = -0.0295831, p_value < 0.001)
+
+t-CS-s & c-CS-s (F = -0.0368549, p_value < 0.001)
+
+t-SC-m & c-SC-m (F = 0.0301176, p_value < 0.001)
+
+t-SC-s & c-SC-m (F = 0.0346406, p_value < 0.001)
+
+Interestingly, no significant difference revealed between t-SC-m & c-SC-s, suggesting that memantine can somewhat normalize the expression of BDNF_N gene.
+
+
+### 2)
+
+Then we tried to build a linear model that can predict the level of production of the ERBB4_N protein based on data on other 76 proteins in the experiment.
+Let's firstly calculate the amount of NA's among different proteins. It's too much to exclude all NA's and we had to be tricky. 
+
+```{r}
+FIND_NA <- as.data.frame(is.na(Mice))
+Result <- as.data.frame(apply(FIND_NA, 2, sum))
+Result
+```
+
+Now it became clear that for better prediction it's necessary to exclude proteins: BAD_N, BCL2_N, pCFOS_N, H3AcK18_N, EGR1_N, H3MeK4_N.
+
+```{r}
+exclude_names <- c("BAD_N", "BCL2_N", "pCFOS_N", "H3AcK18_N", "EGR1_N", "H3MeK4_N")
+Mice_good <- Mice[,!colnames(Mice) %in% exclude_names]
+Mice_good <- na.omit(Mice_good)
+```
+
+After such step we have `r nrow(Mice_good)` rows, that's pretty good because we saved more data then potentially lost.
+To create good linear model let's firstly caclulate a correlation matrix.
+
+```{r}
+Mice_good_numeric <- Mice_good[,2:72]
+Cor_matrix <- cor(Mice_good_numeric)
+```
+
+We tried to find proteins which is strongly correlate among each other (with coefficient 0.7 or more) and exclude it.
+
+```{r}
+cor_vector <- vector()
+Cor_matrix_without_ERBB4_N <- Cor_matrix[!row.names(Cor_matrix) %in% 'ERBB4_N', !colnames(Cor_matrix) %in% 'ERBB4_N']
+for (i in 1:ncol(Cor_matrix_without_ERBB4_N)){
+  for (j in 1:nrow(Cor_matrix_without_ERBB4_N)){
+    if (abs(Cor_matrix_without_ERBB4_N[i,j] > 0.7) & i!=j){
+      cor_vector <- c(cor_vector, i, j)
+    }
+  }
+}
+
+#proteins with these index should be excluded
+cor_vector <- unique(cor_vector)
+proteins_exclude <- row.names(Cor_matrix_without_ERBB4_N[cor_vector,])
+proteis_predictors <- colnames(Cor_matrix_without_ERBB4_N)[!colnames(Cor_matrix_without_ERBB4_N) %in% proteins_exclude]
+proteis_predictors
+```
+Using these 28 predictors, we made a linear model:
+
+```{r}
+m1 <- lm(ERBB4_N ~ pCAMKII_N + pNR2A_N + pRSK_N + APP_N + SOD1_N + pP70S6_N + P70S6_N + pGSK3B_N + pPKCG_N + CDK5_N + S6_N + ADARB1_N + RRP1_N + BAX_N + nNOS_N + GFAP_N + GluR3_N + IL1B_N +  P3525_N + pCASP9_N + PSD95_N +SNCA_N + Ubiquitin_N +pGSK3B_Tyr216_N + SHH_N + SYP_N + CaNA_N, data = Mice_good)
+summary(m1)
+```
+The model is quite good (Adjusted R-squared:  0.7354).
+We tried to correct these model to make it even more appropriate, but the results was wrong (available to take a look at .Rmd file if change include value in a chank)
+
+```{r, include=FALSE}
+vif(m1)
+m2 <- update(m1, .~. -CaNA_N)
+summary(m2)
+vif(m2)
+m3 <- update(m2, .~. -pNR2A_N)
+summary(m3)
+vif(m3)
+m4 <- update(m3, .~. -Ubiquitin_N)
+summary(m4)
+vif(m4)
+m5 <- update(m4, .~. -pPKCG_N)
+summary(m5)
+vif(m5)
+m6 <- update(m5, .~. -IL1B_N)
+summary(m6)
+```
+
+Then it's important to diagnose the resulting linear model. Let's plot Cook distance as previously used:
+
+```{r}
+mod_diag_2 <- fortify(m1)
+ggplot(mod_diag_2, aes(x = 1:nrow(mod_diag_2), y = .cooksd)) + geom_bar(stat = "identity", fill = 'chocolate1') + ggtitle("Cook's distance graph ") + theme_bw() + xlab('Row number') + ylab('Cook distance')
+```
+
+And also we plotted the distribution of residuals from the model:
+
+
+```{r}
+predict_value <- m1$fitted.values
+Mice_good$DIF <- predict_value - Mice_good$ERBB4_N
+ggplot(data = Mice_good, aes (x = 1:nrow(Mice_good), y = DIF)) + geom_point() + theme_bw() + geom_hline(yintercept = 0, col = 'red') + xlab('Row number') + ylab('Difference between predicted and real value')
+```
+
+To conclude, i may be proud of these model: we can't see any patterns among residuals, Adjusted R-squared:  0.7354, F-statistic: 108.7 on 27 and 1019 DF,  p-value: < 2.2e-16.
+
+
+### 3)
+
+We performed PCA to reduce dimensions:
+
+```{r}
+proteins.pca <- prcomp(Mice_good_numeric, center = TRUE,scale. = TRUE)
+summary(proteins.pca)
+```
+To visualize a percentage of the total variation for the first 9 components we created a plot:
+
+```{r}
+Importance <- summary(proteins.pca)
+DF_importance <- as.data.frame(t(as.matrix(Importance$importance)))
+DF_importance$PC <- rownames(DF_importance)
+DF_importance$Variance <- DF_importance$`Proportion of Variance`
+ggplot(data=DF_importance[1:9,], aes(x = PC, y = Variance)) + geom_bar(stat = "identity") + theme_bw() + xlab("Principal component") + ylab("Percentage of the total variation")+ ggtitle("A percentage of the total variation\nfor the first 9 PC")
+```
+In order to precisely recognize the difference between groups, we also plotted 2D plot (PC1 & PC2):
+
+```{r}
+autoplot(proteins.pca, data = Mice_good, colour = 'class') + theme_bw() 
+```
+And interactive 3D plot (PC1 & PC2 & PC3)
+```{r}
+plot_ly(x=proteins.pca$x[,1], y=proteins.pca$x[,2], z=proteins.pca$x[,3], type="scatter3d", mode="markers", color = Mice_good$class_factor)
+```
+
+
+
+We have too much proteins, that's why factor load graph is a bit meaningless. The angles between the vectors reflect the correlations of features with each other and with the axes of the principal components. 
+
+
+```{r}
+fviz_pca_var(proteins.pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE 
+             )
+```
+
+
+
