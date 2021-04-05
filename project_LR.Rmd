@@ -1,0 +1,136 @@
+---
+title: "Логистическая регрессия. Дополнительный проект."
+author: "Проценко Людмила"
+date: "4/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+require(ggplot2)
+require(ROCR)
+require(car)
+```
+
+Откроем данные и набросаем пилотные графики:
+
+```{r}
+df <- read.csv('~/2021_year/binary.csv')
+df$rank <- as.factor(df$rank)
+
+ggplot(data = df, aes(x = gre, col = as.factor(admit))) + geom_density() + theme_bw() + facet_grid(.~rank) + ylab('Density in different ranks')
+```
+
+Видим, что в зависимости от переменной rank, по которой идет разбиение графиков, наблюдается разное поведение по каждой градации переменной admit для распределения переменной gre. Схожая ситуация наблюдается и по переменной gpa: 
+
+
+```{r}
+ggplot(data = df, aes(x = gpa, col = as.factor(admit))) + geom_density() + theme_bw() + facet_grid(.~rank) + ylab('Density in different ranks')
+```
+
+Интересно, что здесь для четвертого ранга пик admit приходится на больший gpa, а в случае gre у admit появляется два пика. Для первого ранга gre по-видимому не влияет на admit, но ощутимо влияет gpa.
+
+Для того, чтобы понять, как связаны между собой gpa и gre, построим график:
+
+
+```{r}
+ggplot(data = df, aes(x = gpa, y = gre, col = factor(admit))) + geom_point() + theme_bw() 
+df$gpa <- scale(df$gpa)
+df$gre <- scale(df$gre)
+```
+
+Видно, что даже максимальный gpa и gre - не гарантия admit, а также есть достаточно большое количество людей, у которых максимум только по одному из показателей. Область с маленьким gpa и маленьким gre преимущественно состоит из красных точек, что дает значение admit 0, то есть логически верно. Также видно, что единицы измерения очень разные, и для лучшей интерпретации хотелось бы применить scale к этим переменным.
+
+
+```{r}
+fit <- glm(admit ~ gre + gpa + rank, df, family = 'binomial')
+Anova(fit)
+```
+Оставляем первую полную модель:
+
+```{r}
+drop1(fit, test = "Chi")
+
+mod2 <- update(fit, .~.-gpa)
+drop1(mod2, test = "Chi")
+
+mod3 <- update(mod2, .~.-gre)
+drop1(mod3, test = "Chi")
+
+AIC(fit, mod2, mod3)
+```
+Проведем диагностику модели:
+
+```{r}
+mod_diag <- data.frame(.fitted = fitted(fit, type = 'response'),
+                        .resid_p = resid(fit, type = 'pearson'))
+
+ggplot(mod_diag, aes(y = .resid_p, x = .fitted)) + 
+  geom_point() +
+  theme_bw() +
+  geom_hline(yintercept = 0) +  
+  geom_smooth(method = 'loess')
+```
+
+Нет значительных проблем с линейностью связи.
+
+Проведем проверку на сверхдисперсию:
+
+```{r}
+overdisp_fun <- function(model) {
+  rdf <- df.residual(model)  # Число степеней свободы N - p
+  if (any(class(model) == 'negbin')) rdf <- rdf - 1 ## учитываем k в NegBin GLMM
+  rp <- residuals(model,type='pearson') # Пирсоновские остатки
+  Pearson.chisq <- sum(rp^2) # Сумма квадратов остатков, подчиняется Хи-квадрат распределению
+  prat <- Pearson.chisq/rdf  # Отношение суммы квадратов остатков к числу степеней свободы
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE) # Уровень значимости
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)        # Вывод результатов
+}
+
+overdisp_fun(fit)
+```
+
+Сделаем и визуализируем предсказания по модели:
+Оптимальный порог - около 0.32 (по пересечению линий специфичности, чувствительности и точности). Площадь под ROC кривой оставила 0.693, что не очень хорошо (хорошо бы 1), но и не очень плохо. 
+
+```{r}
+
+df$predicted <- predict(object = fit, type = 'response')
+
+pred_fit <- prediction(df$predicted, df$admit)
+auc <- performance(pred_fit, measure = "auc")
+str(auc)
+pred_fit <- performance(pred_fit, "tpr", "fpr")
+
+plot(pred_fit, colorize = T, print.cutoffs.at = seq(0, 1, by = 0.1))
+
+pred_fit <- prediction(df$predicted, df$admit)
+a <- performance(pred_fit, x.measure = "cutoff", measure = "spec")
+plot(a, col = 'green', lwd=2)
+b <- performance(pred_fit, x.measure = "cutoff", measure = "sens")
+plot(add = T, b, col = 'blue', lwd = 2)
+c <- performance(pred_fit, x.measure = "cutoff", measure = "acc")
+plot(add = T, c, lwd =2)
+legend(x = 0.62, y = 0.4, c("spec", "sens", "acc"), lty = 1, col = c("green", "blue", "black", bty ='n', cex = 1, lwd =2))
+```
+В целом, модель неплохо предсказывает значения admit для малых вероятностей, однако часто ошибается на значениях вероятности, близких к cutoff. 
+
+```{r}
+df$pred_response <- ifelse(df$predicted > 0.32, 1, 0)
+df$correct <- ifelse(df$admit == df$pred_response, 'Yes', 'No')
+ggplot(data = df, aes(predicted, fill = factor(correct))) + geom_dotplot(alpha = 0.7) + theme_bw()
+```
+
+
+В целом, модель неплохо предсказывает значения admit для малых вероятностей, однако часто ошибается на значениях вероятности, близких к cutoff. 
+
+```{r}
+df$pred_response <- ifelse(df$predicted > 0.35, 1, 0)
+df$correct <- ifelse(df$admit == df$pred_response, 'Yes', 'No')
+ggplot(data = df, aes(predicted, fill = factor(correct))) + geom_dotplot(alpha = 0.7) + theme_bw()
+```
+При смещении порога до 0.35 предсказания стали лучше, оставим его. 
+
